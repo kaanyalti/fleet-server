@@ -241,9 +241,7 @@ type ActionRequestDiagnostics struct {
 type ActionRequestDiagnosticsAdditionalMetrics string
 
 // ActionRestart Restart
-type ActionRestart struct {
-	PolicyId string `json:"policy_id"`
-}
+type ActionRestart = interface{}
 
 // ActionSettings The SETTINGS action data.
 type ActionSettings struct {
