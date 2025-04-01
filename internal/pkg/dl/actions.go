@@ -102,14 +102,19 @@ func createBaseActionsQuery() (tmpl *dsl.Tmpl, root, filter *dsl.Node) {
 	return //nolint:nakedret // simple function
 }
 
-func FindAction(ctx context.Context, bulker bulk.Bulk, id string, opts ...Option) ([]model.Action, error) {
+func FindAction(log zerolog.Logger, ctx context.Context, bulker bulk.Bulk, id string, opts ...Option) ([]model.Action, error) {
 	o := newOption(FleetActions, opts...)
-	return findActions(ctx, bulker, QueryAction, o.indexName, map[string]interface{}{
+	actions, err := findActions(ctx, bulker, QueryAction, o.indexName, map[string]interface{}{
 		FieldActionID: id,
 	}, nil)
+
+	log.Info().Str("funcname", "FindAction").Msgf("Found actions %+v", actions)
+
+	return actions, err
 }
 
-func FindAgentActions(ctx context.Context, bulker bulk.Bulk, minSeqNo, maxSeqNo sqn.SeqNo, agentID string) ([]model.Action, error) {
+func FindAgentActions(zlog zerolog.Logger, ctx context.Context, bulker bulk.Bulk, minSeqNo, maxSeqNo sqn.SeqNo, agentID string) ([]model.Action, error) {
+	zlog.Info().Msg("FindAgentActions")
 	const index = FleetActions
 	params := map[string]interface{}{
 		FieldSeqNo:      minSeqNo.Value(),
@@ -138,7 +143,6 @@ func DeleteExpiredForIndex(ctx context.Context, index string, bulker bulk.Bulk, 
 
 	res, err := bulker.Client().API.DeleteByQuery([]string{index}, bytes.NewReader(query),
 		bulker.Client().API.DeleteByQuery.WithContext(ctx))
-
 	if err != nil {
 		return 0, err
 	}

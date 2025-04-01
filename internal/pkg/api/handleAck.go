@@ -36,9 +36,7 @@ const (
 	TypeUpgrade  = "UPGRADE"
 )
 
-var (
-	ErrUpdatingInactiveAgent = errors.New("updating inactive agent")
-)
+var ErrUpdatingInactiveAgent = errors.New("updating inactive agent")
 
 type HTTPError struct {
 	Status int
@@ -277,7 +275,7 @@ func (ack *AckT) handleAckEvents(ctx context.Context, zlog zerolog.Logger, agent
 		action, ok := ack.cache.GetAction(event.ActionId)
 		if !ok {
 			// Find action by ID
-			actions, err := dl.FindAction(vCtx, ack.bulk, event.ActionId)
+			actions, err := dl.FindAction(zlog, vCtx, ack.bulk, event.ActionId)
 			if err != nil {
 				log.Error().Err(err).Msg("find action")
 				setError(n, err)
@@ -440,7 +438,8 @@ func (ack *AckT) updateAPIKey(ctx context.Context,
 	zlog zerolog.Logger,
 	agentID string,
 	apiKeyID, permissionHash string,
-	toRetireAPIKeyIDs []model.ToRetireAPIKeyIdsItems, outputName string) error {
+	toRetireAPIKeyIDs []model.ToRetireAPIKeyIdsItems, outputName string,
+) error {
 	bulk := ack.bulk
 	// use output bulker if exists
 	if outputName != "" {

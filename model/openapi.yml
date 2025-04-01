@@ -487,6 +487,7 @@ components:
             - $ref: "#/components/schemas/actionCancel"
             - $ref: "#/components/schemas/actionRequestDiagnostics"
             - $ref: "#/components/schemas/actionInputAction"
+            - $ref: "#/components/schemas/actionRestart"
         id:
           description: The action ID.
           type: string
@@ -510,6 +511,7 @@ components:
             - "SETTINGS"
             - "INPUT_ACTION"
             - "CANCEL"
+            - "RESTART"
             - "REQUEST_DIAGNOSTICS"
           x-go-custom-tag: yaml:"type" # openapi-generator
           x-oapi-codegen-extra-tags: # oapi-codegen tags
@@ -586,6 +588,8 @@ components:
         policy_id:
           desription: The policy ID the agent has been reassigned to.
           type: string
+    actionRestart:
+      description: Restart
     actionPolicyChange:
       description: The POLICY_CHANGE action data.
       type: object
@@ -593,7 +597,7 @@ components:
         - policy
       properties:
         policy:
-          $ref:  "#/components/schemas/policyData"
+          $ref: "#/components/schemas/policyData"
     actionUpgrade:
       description: the UPGRADE action data.
       type: object
@@ -759,11 +763,11 @@ components:
         - $ref: "#/components/schemas/genericEvent"
         - type: object
           required:
-          - action_input_type
-          - action_data
-          - action_response
-          - started_at
-          - completed_at
+            - action_input_type
+            - action_data
+            - action_response
+            - started_at
+            - completed_at
           properties:
             action_input_type:
               description: The input_type of the action for input actions.

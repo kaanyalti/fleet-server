@@ -116,7 +116,6 @@ func (a *apiServer) AgentEnroll(w http.ResponseWriter, r *http.Request, params A
 	}()
 
 	err = a.et.handleEnroll(zlog, w, r, rb, params.UserAgent)
-
 	if err != nil {
 		cntEnroll.IncError(err)
 		ErrorResp(w, r, err)
@@ -126,6 +125,7 @@ func (a *apiServer) AgentEnroll(w http.ResponseWriter, r *http.Request, params A
 func (a *apiServer) AgentAcks(w http.ResponseWriter, r *http.Request, id string, params AgentAcksParams) {
 	zlog := hlog.FromRequest(r).With().Str(LogAgentID, id).Logger()
 	w.Header().Set("Content-Type", "application/json")
+	zlog.Info().Str("funcname", "AgentAcks").Msg("starting agent ack handler in api.go in fleet server")
 	if err := a.ack.handleAcks(zlog, w, r, id); err != nil {
 		cntAcks.IncError(err)
 		ErrorResp(w, r, err)
@@ -134,6 +134,7 @@ func (a *apiServer) AgentAcks(w http.ResponseWriter, r *http.Request, id string,
 
 func (a *apiServer) AgentCheckin(w http.ResponseWriter, r *http.Request, id string, params AgentCheckinParams) {
 	zlog := hlog.FromRequest(r).With().Str(LogAgentID, id).Logger()
+	zlog.Info().Str("funcname", "AgentChecking").Msg("starting agent checkin handler in api.go in fleet server")
 	w.Header().Set("Content-Type", "application/json")
 	err := a.ct.handleCheckin(zlog, w, r, id, params.UserAgent)
 	if err != nil {

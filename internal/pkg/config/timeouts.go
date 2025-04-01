@@ -56,7 +56,7 @@ func (c *ServerTimeouts) InitDefaults() {
 	c.CheckinTimestamp = 30 * time.Second
 
 	// Long poll timeout, will be short-circuited on policy change
-	c.CheckinLongPoll = 5 * time.Minute
+	c.CheckinLongPoll = 5 * time.Second
 
 	// Jitter subtracted from c.CheckinLongPoll. Disabled if zero.
 	c.CheckinJitter = 30 * time.Second

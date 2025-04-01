@@ -64,6 +64,7 @@ var validActionTypes = map[string]bool{
 	string(SETTINGS):           true,
 	string(UNENROLL):           true,
 	string(UPGRADE):            true,
+	string(RESTART):            true,
 }
 
 type CheckinT struct {
@@ -259,6 +260,7 @@ func (ct *CheckinT) validateRequest(zlog zerolog.Logger, w http.ResponseWriter, 
 func (ct *CheckinT) ProcessRequest(zlog zerolog.Logger, w http.ResponseWriter, r *http.Request, start time.Time, agent *model.Agent, ver string) error {
 	zlog = zlog.With().
 		Str(logger.AgentID, agent.Id).Logger()
+	zlog.Info().Str("funcname", "ProcessRequest").Msg("ProcessRequest starting")
 	validated, err := ct.validateRequest(zlog, w, r, start, agent)
 	if err != nil {
 		return err
@@ -272,7 +274,7 @@ func (ct *CheckinT) ProcessRequest(zlog zerolog.Logger, w http.ResponseWriter, r
 
 	// Handle upgrade details for agents using the new 8.11 upgrade details field of the checkin.
 	// Older agents will communicate any issues with upgrades via the Ack endpoint.
-	if err := ct.processUpgradeDetails(r.Context(), agent, req.UpgradeDetails); err != nil {
+	if err := ct.processUpgradeDetails(zlog, r.Context(), agent, req.UpgradeDetails); err != nil {
 		return fmt.Errorf("failed to update upgrade_details: %w", err)
 	}
 
@@ -337,13 +339,15 @@ func (ct *CheckinT) ProcessRequest(zlog zerolog.Logger, w http.ResponseWriter, r
 	)
 
 	// Check agent pending actions first
-	pendingActions, err := ct.fetchAgentPendingActions(r.Context(), seqno, agent.Id)
+	pendingActions, err := ct.fetchAgentPendingActions(zlog, r.Context(), seqno, agent.Id)
 	if err != nil {
 		return err
 	}
+	zlog.Info().Str("funcname", "ProcessRequest").Msgf("Pending actions %+v", pendingActions)
 	pendingActions = filterActions(zlog, agent.Id, pendingActions)
 	actions, ackToken = convertActions(zlog, agent.Id, pendingActions)
 
+	zlog.Info().Str("funcname", "ProcessRequest").Msgf("Filtered pending actions %+v", actions)
 	span, ctx := apm.StartSpan(r.Context(), "longPoll", "process")
 
 	if len(actions) == 0 {
@@ -398,10 +402,10 @@ func (ct *CheckinT) ProcessRequest(zlog zerolog.Logger, w http.ResponseWriter, r
 	return ct.writeResponse(zlog, w, r, agent, resp)
 }
 
-func (ct *CheckinT) verifyActionExists(vCtx context.Context, vSpan *apm.Span, agent *model.Agent, details *UpgradeDetails) (*model.Action, error) {
+func (ct *CheckinT) verifyActionExists(zlog zerolog.Logger, vCtx context.Context, vSpan *apm.Span, agent *model.Agent, details *UpgradeDetails) (*model.Action, error) {
 	action, ok := ct.cache.GetAction(details.ActionId)
 	if !ok {
-		actions, err := dl.FindAction(vCtx, ct.bulker, details.ActionId)
+		actions, err := dl.FindAction(zlog, vCtx, ct.bulker, details.ActionId)
 		if err != nil {
 			vSpan.End()
 			return nil, fmt.Errorf("unable to find upgrade_details action: %w", err)
@@ -422,7 +426,7 @@ func (ct *CheckinT) verifyActionExists(vCtx context.Context, vSpan *apm.Span, ag
 // if the agent doc and checkin details are both nil the method is a nop
 // if the checkin upgrade_details is nil but there was a previous value in the agent doc, fleet-server treats it as a successful upgrade
 // otherwise the details are validated; action_id is checked and upgrade_details.metadata is validated based on upgrade_details.state and the agent doc is updated.
-func (ct *CheckinT) processUpgradeDetails(ctx context.Context, agent *model.Agent, details *UpgradeDetails) error {
+func (ct *CheckinT) processUpgradeDetails(zlog zerolog.Logger, ctx context.Context, agent *model.Agent, details *UpgradeDetails) error {
 	if details == nil {
 		err := ct.markUpgradeComplete(ctx, agent)
 		if err != nil {
@@ -433,7 +437,7 @@ func (ct *CheckinT) processUpgradeDetails(ctx context.Context, agent *model.Agen
 	// update docs with in progress details
 
 	vSpan, vCtx := apm.StartSpan(ctx, "Check update action", "validate")
-	action, err := ct.verifyActionExists(ctx, vSpan, agent, details)
+	action, err := ct.verifyActionExists(zlog, ctx, vSpan, agent, details)
 	if err != nil {
 		return err
 	}
@@ -670,8 +674,8 @@ func (ct *CheckinT) resolveSeqNo(ctx context.Context, zlog zerolog.Logger, req C
 	return seqno, err
 }
 
-func (ct *CheckinT) fetchAgentPendingActions(ctx context.Context, seqno sqn.SeqNo, agentID string) ([]model.Action, error) {
-	actions, err := dl.FindAgentActions(ctx, ct.bulker, seqno, ct.gcp.GetCheckpoint(), agentID)
+func (ct *CheckinT) fetchAgentPendingActions(zlog zerolog.Logger, ctx context.Context, seqno sqn.SeqNo, agentID string) ([]model.Action, error) {
+	actions, err := dl.FindAgentActions(zlog, ctx, ct.bulker, seqno, ct.gcp.GetCheckpoint(), agentID)
 	if err != nil {
 		return nil, fmt.Errorf("fetchAgentPendingActions: %w", err)
 	}
@@ -702,7 +706,8 @@ func filterActions(zlog zerolog.Logger, agentID string, actions []model.Action) 
 // TODO: There is a lot of repitition in this method we should try to clean up.
 //
 //nolint:nakedret // FIXME try to refactor this in the future
-func convertActionData(aType ActionType, raw json.RawMessage) (ad Action_Data, err error) {
+func convertActionData(zlog zerolog.Logger, aType ActionType, raw json.RawMessage) (ad Action_Data, err error) {
+	zlog.Info().Str(logger.ActionType, string(aType)).Str("funcname", "convertActionData").Msg("Starting convert action data")
 	switch aType {
 	case CANCEL:
 		d := ActionCancel{}
@@ -721,6 +726,8 @@ func convertActionData(aType ActionType, raw json.RawMessage) (ad Action_Data, e
 		err = ad.FromActionInputAction(d)
 		return
 	case POLICYREASSIGN:
+		zlog.Info().Str(logger.ActionType, string(aType)).Str("funcname", "convertActionData").Msg("matched switch case with POLICYREASSIGN")
+
 		d := ActionPolicyReassign{}
 		err = json.Unmarshal(raw, &d)
 		if err != nil {
@@ -728,6 +735,17 @@ func convertActionData(aType ActionType, raw json.RawMessage) (ad Action_Data, e
 		}
 		err = ad.FromActionPolicyReassign(d)
 		return
+	case RESTART: // Action types with no data
+		zlog.Info().Str(logger.ActionType, string(aType)).Str("funcname", "convertActionData").Msg("matched switch case with RESTART")
+		zlog.Info().Str(logger.ActionType, string(aType)).Str("funcname", "convertActionData").Msg(string(raw))
+
+		// d := ActionRestart{}
+		// err = json.Unmarshal(raw, &d)
+		// if err != nil {
+		// 	return
+		// }
+		// err = ad.FromActionRestart(d)
+		return ad, nil
 	case SETTINGS:
 		d := ActionSettings{}
 		err = json.Unmarshal(raw, &d)
@@ -760,6 +778,7 @@ func convertActionData(aType ActionType, raw json.RawMessage) (ad Action_Data, e
 	case UNENROLL: // Action types with no data
 		return ad, nil
 	default:
+		zlog.Info().Str(logger.ActionType, string(aType)).Str("funcname", "convertActionData").Msg("didn't match anything in convertActionData")
 		return ad, fmt.Errorf("data conversion unsupported action type: %s", aType)
 	}
 }
@@ -767,10 +786,10 @@ func convertActionData(aType ActionType, raw json.RawMessage) (ad Action_Data, e
 func convertActions(zlog zerolog.Logger, agentID string, actions []model.Action) ([]Action, string) {
 	var ackToken string
 	sz := len(actions)
-
+	zlog.Info().Str("funcname", "convertActions").Msg("starting to convert actions")
 	respList := make([]Action, 0, sz)
 	for _, action := range actions {
-		ad, err := convertActionData(ActionType(action.Type), action.Data)
+		ad, err := convertActionData(zlog, ActionType(action.Type), action.Data)
 		if err != nil {
 			zlog.Error().Err(err).Str(logger.ActionID, action.ActionID).Str(logger.ActionType, action.Type).Msg("Failed to convert action.Data")
 			continue
